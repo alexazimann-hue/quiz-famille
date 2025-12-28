@@ -69,7 +69,9 @@
             
             <div class="flex flex-col md:flex-row gap-10 items-center justify-center mb-12">
                 <div class="bg-white p-6 rounded-[2rem] shadow-xl border-4 border-slate-50 flex flex-col items-center">
-                    <div id="qrcode" class="mb-6 bg-white p-2 border border-slate-100"></div>
+                    <div id="qrcode" class="mb-6 bg-white p-2 border border-slate-100 min-h-[128px] min-w-[128px] flex items-center justify-center">
+                        <!-- Le QR Code s'injecte ici -->
+                    </div>
                     <div class="px-8 py-3 bg-indigo-50 rounded-2xl font-black text-3xl text-indigo-600 tracking-widest uppercase">
                         {{ session.id }}
                     </div>
@@ -208,13 +210,12 @@
 
     const appId = 'famille-quiz-4d872';
 
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     const { createApp, ref, computed, onMounted, nextTick } = Vue;
 
-    // BASE DE DONNÉES DE 100 QUESTIONS
     const ALL_QUESTIONS = [
         { question: "Quelle est la capitale de l'Australie ?", options: ["Sydney", "Melbourne", "Canberra", "Perth"], answer: 2 },
         { question: "Complétez la suite : 1, 3, 6, 10, ... ?", options: ["12", "15", "18", "21"], answer: 1 },
@@ -350,21 +351,38 @@
                 }
             });
 
-            // LOGIQUE DE SÉLECTION ALÉATOIRE SANS DOUBLONS
+            const generateQR = (id) => {
+                // On utilise nextTick pour s'assurer que le DOM est prêt
+                nextTick(() => {
+                    const qrEl = document.getElementById("qrcode");
+                    if (qrEl) {
+                        qrEl.innerHTML = "";
+                        const url = window.location.origin + window.location.pathname + "?join=" + id;
+                        // On attend un tout petit peu pour que l'animation de transition soit terminée
+                        setTimeout(() => {
+                            new QRCode(qrEl, {
+                                text: url,
+                                width: 128,
+                                height: 128,
+                                colorDark: "#4f46e5",
+                                colorLight: "#ffffff",
+                                correctLevel: QRCode.CorrectLevel.H
+                            });
+                        }, 50);
+                    }
+                });
+            };
+
             const getRandomQuestions = () => {
                 let used = JSON.parse(localStorage.getItem('quiz_memory') || '[]');
                 let available = ALL_QUESTIONS.map((_, i) => i).filter(idx => !used.includes(idx));
                 
-                // Si on a épuisé les questions, on réinitialise
                 if (available.length < 15) {
                     used = [];
                     available = ALL_QUESTIONS.map((_, i) => i);
                 }
 
-                // Mélange et sélection
                 const selectedIndices = available.sort(() => 0.5 - Math.random()).slice(0, 15);
-                
-                // Sauvegarde pour la prochaine fois
                 localStorage.setItem('quiz_memory', JSON.stringify([...used, ...selectedIndices]));
                 
                 return selectedIndices.map(idx => ALL_QUESTIONS[idx]);
@@ -378,7 +396,7 @@
                 const sRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id);
                 await setDoc(sRef, { 
                     id, status: 'lobby', currentBlock: 0, adminId: userId.value,
-                    questions: selectedQs // On injecte les questions choisies dans la session
+                    questions: selectedQs
                 });
                 
                 const pRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id, 'players', userId.value);
@@ -388,7 +406,6 @@
                 sessionId.value = id;
                 role.value = 'admin';
                 watchSession(id);
-                generateQR(id);
             };
 
             const joinGame = async () => {
@@ -408,24 +425,21 @@
 
             const watchSession = (id) => {
                 onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id), (s) => {
-                    session.value = s.data();
+                    const data = s.data();
+                    if (!data) return;
+                    session.value = data;
+                    
+                    // Si on est dans le lobby, on s'assure que le QR code est généré
+                    if (data.status === 'lobby') {
+                        generateQR(id);
+                    }
+
                     const expectedStart = session.value.currentBlock * 5;
                     if (playerLocalIndex.value < expectedStart) playerLocalIndex.value = expectedStart;
                     nextTick(() => lucide.createIcons());
                 });
                 onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'sessions', id, 'players'), (s) => {
                     players.value = s.docs.map(d => ({id: d.id, ...d.data()}));
-                });
-            };
-
-            const generateQR = (id) => {
-                nextTick(() => {
-                    const qrEl = document.getElementById("qrcode");
-                    if (qrEl) {
-                        qrEl.innerHTML = "";
-                        const url = window.location.href.split('?')[0] + "?join=" + id;
-                        new QRCode(qrEl, { text: url, width: 128, height: 128, colorDark: "#4f46e5" });
-                    }
                 });
             };
 
