@@ -10,13 +10,17 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         [v-cloak] { display: none; }
-        .animate-pop { animation: pop 0.3s ease-out; }
+        .animate-pop { animation: pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); animation-duration: 0.4s; }
         @keyframes pop {
-            0% { transform: scale(0.95); opacity: 0; }
+            0% { transform: scale(0.9); opacity: 0; }
             100% { transform: scale(1); opacity: 1; }
         }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        
+        /* Animation de clic sur les boutons */
+        .btn-press:active { transform: scale(0.98); }
+        .option-btn { transition: all 0.2s ease; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans min-h-screen">
@@ -40,10 +44,10 @@
             <p class="text-slate-500 mb-10 italic">100 questions disponibles !</p>
             
             <div class="space-y-6">
-                <input v-model="tempName" placeholder="Ton Prénom" class="w-full p-4 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-400 text-center font-bold text-lg bg-slate-50 transition-all shadow-inner">
+                <input ref="nameInput" v-model="tempName" placeholder="Ton Prénom" class="w-full p-4 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-400 text-center font-bold text-lg bg-slate-50 transition-all shadow-inner">
                 
                 <div class="grid grid-cols-1 gap-4">
-                    <button @click="initAdmin" :disabled="!tempName" class="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-3">
+                    <button @click="initAdmin" :disabled="!tempName" class="btn-press w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 transition-all shadow-xl disabled:opacity-50 flex items-center justify-center gap-3">
                         <i data-lucide="crown" class="w-6 h-6"></i> Créer la partie
                     </button>
                     
@@ -55,7 +59,8 @@
 
                     <div class="space-y-3">
                         <input v-model="tempId" placeholder="Code Session" class="w-full p-4 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-400 text-center uppercase font-black text-xl bg-slate-50 tracking-widest shadow-inner">
-                        <button @click="joinGame" :disabled="!tempName || !tempId" class="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-lg hover:bg-slate-800 transition-all disabled:opacity-50">
+                        <p v-if="errorMessage" class="text-red-500 text-xs font-bold">{{ errorMessage }}</p>
+                        <button @click="joinGame" :disabled="!tempName || !tempId" class="btn-press w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-lg hover:bg-slate-800 transition-all disabled:opacity-50">
                             Rejoindre l'arène
                         </button>
                     </div>
@@ -65,13 +70,12 @@
 
         <!-- 3. SALON D'ATTENTE (LOBBY) -->
         <div v-else-if="session && session.status === 'lobby'" class="p-8 text-center animate-pop">
-            <h2 class="text-2xl font-black mb-10 text-slate-900">Préparation de la partie</h2>
+            <h2 class="text-2xl font-black mb-2 text-slate-900">Préparation de la partie</h2>
+            <p class="text-indigo-500 font-bold mb-10">Tu es dans la partie de <span class="underline">{{ session.adminName || 'Admin' }}</span></p>
             
             <div class="flex flex-col md:flex-row gap-10 items-center justify-center mb-12">
                 <div class="bg-white p-6 rounded-[2rem] shadow-xl border-4 border-slate-50 flex flex-col items-center">
-                    <div id="qrcode" class="mb-6 bg-white p-2 border border-slate-100 min-h-[128px] min-w-[128px] flex items-center justify-center">
-                        <!-- Le QR Code s'injecte ici -->
-                    </div>
+                    <div id="qrcode" class="mb-6 bg-white p-2 border border-slate-100 min-h-[128px] min-w-[128px] flex items-center justify-center"></div>
                     <div class="px-8 py-3 bg-indigo-50 rounded-2xl font-black text-3xl text-indigo-600 tracking-widest uppercase">
                         {{ session.id }}
                     </div>
@@ -82,8 +86,13 @@
                         <i data-lucide="users" class="w-4 h-4"></i> Joueurs ({{ players.length }})
                     </p>
                     <div class="grid grid-cols-1 gap-2 max-h-56 overflow-y-auto pr-2 custom-scrollbar">
-                        <div v-for="p in players" :key="p.id" class="p-4 bg-white rounded-2xl border border-slate-200 font-bold flex items-center justify-between shadow-sm animate-pop">
-                            <span>{{ p.name }}</span>
+                        <div v-for="p in players" :key="p.id" class="p-3 bg-white rounded-2xl border border-slate-200 font-bold flex items-center justify-between shadow-sm animate-pop">
+                            <div class="flex items-center gap-3">
+                                <div :class="[getPlayerColor(p.name), 'w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black uppercase shadow-sm']">
+                                    {{ p.name.charAt(0) }}
+                                </div>
+                                <span>{{ p.name }}</span>
+                            </div>
                             <div class="w-2 h-2 rounded-full bg-green-500"></div>
                         </div>
                     </div>
@@ -91,73 +100,96 @@
             </div>
 
             <div v-if="role === 'admin'" class="space-y-4">
-                <button @click="updateStatus('playing')" :disabled="players.length === 0" class="w-full py-6 bg-indigo-600 text-white rounded-2xl font-black text-2xl shadow-xl hover:bg-indigo-700 disabled:opacity-50">
+                <button @click="updateStatus('playing')" :disabled="players.length === 0" class="btn-press w-full py-6 bg-indigo-600 text-white rounded-2xl font-black text-2xl shadow-xl hover:bg-indigo-700 disabled:opacity-50">
                     LANCER LE QUIZ !
                 </button>
             </div>
             <div v-else class="p-8 bg-indigo-50 text-indigo-600 rounded-[2rem] font-black text-xl animate-pulse">
-                Attente de l'admin...
+                Attente du lancement...
             </div>
         </div>
 
         <!-- 4. EN JEU -->
         <div v-else-if="session && session.status === 'playing' && !isWaitingForBlock" class="p-6 md:p-12 animate-pop">
+            <!-- Warning si arrivée en cours -->
+            <div v-if="role === 'player' && session.currentBlock > 0 && playerLocalIndex <= (session.currentBlock * 5)" class="bg-amber-50 text-amber-700 p-3 rounded-xl text-[10px] font-bold mb-4 flex items-center gap-2">
+                <i data-lucide="alert-circle" class="w-3 h-3"></i> Tu arrives en cours de route !
+            </div>
+
             <div class="flex justify-between items-center mb-8">
-                <div class="px-4 py-2 bg-slate-100 rounded-xl text-[11px] font-black text-slate-500 uppercase">Question {{ playerLocalIndex + 1 }} / 15</div>
-                <span class="text-sm font-black text-indigo-600">{{ name }}</span>
+                <div class="px-4 py-2 bg-slate-100 rounded-xl text-[11px] font-black text-slate-500 uppercase tracking-tighter">Question {{ playerLocalIndex + 1 }} / 15</div>
+                <div class="flex items-center gap-2">
+                    <div :class="[getPlayerColor(name), 'w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] uppercase shadow-sm']">
+                        {{ name.charAt(0) }}
+                    </div>
+                    <span class="text-sm font-black text-indigo-600">{{ name }}</span>
+                </div>
             </div>
 
-            <h2 class="text-3xl font-black mb-10 text-slate-900 leading-tight">{{ currentQuestion.question }}</h2>
+            <h2 class="text-2xl md:text-3xl font-black mb-8 text-slate-900 leading-tight">{{ currentQuestion.question }}</h2>
             
-            <div v-if="currentQuestion.image" class="mb-10 p-12 bg-slate-50 rounded-[3rem] text-center text-8xl border-2 border-slate-100 shadow-inner">
-                {{ currentQuestion.image }}
+            <!-- Support Images URL et Emojis -->
+            <div v-if="currentQuestion.image" class="mb-8 p-6 bg-slate-50 rounded-[2.5rem] text-center border-2 border-slate-100 shadow-inner overflow-hidden flex items-center justify-center min-h-[160px]">
+                <img v-if="isImageUrl(currentQuestion.image)" 
+                     :src="currentQuestion.image" 
+                     class="max-h-48 rounded-2xl object-contain shadow-md mx-auto"
+                     @error="e => e.target.src = 'https://placehold.co/400x300?text=Image+Non+Disponible'">
+                <div v-else class="text-7xl p-6">{{ currentQuestion.image }}</div>
             </div>
 
-            <div class="grid gap-4 mb-8">
+            <div class="grid gap-3 mb-8">
                 <button v-for="(opt, idx) in currentQuestion.options" 
                     :key="idx"
                     :disabled="hasValidated"
                     @click="selectedIdx = idx"
                     :class="[
-                        'p-6 text-left rounded-3xl border-2 font-black transition-all flex items-center gap-5',
-                        selectedIdx === idx ? 'border-indigo-600 bg-indigo-50 shadow-lg' : 'border-slate-100 hover:border-indigo-300'
+                        'p-5 text-left rounded-2xl border-2 font-black transition-all flex items-center gap-4 option-btn btn-press',
+                        getOptionClass(idx)
                     ]">
-                    <span class="text-xl">{{ opt }}</span>
+                    <span class="w-8 h-8 rounded-lg flex items-center justify-center text-sm" :class="selectedIdx === idx ? 'bg-indigo-200 text-indigo-700' : 'bg-slate-100 text-slate-400'">
+                        {{ String.fromCharCode(65 + idx) }}
+                    </span>
+                    <span class="text-lg">{{ opt }}</span>
                 </button>
             </div>
 
             <button v-if="selectedIdx !== null && !hasValidated" 
                 @click="submitAndNext"
-                class="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-xl shadow-xl hover:bg-indigo-700 transition-all">
+                class="btn-press w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-xl shadow-xl hover:bg-indigo-700 transition-all">
                 Valider ma réponse
             </button>
             
-            <div v-if="hasValidated" class="text-center p-6 text-indigo-500 font-black animate-pulse">
-                En attente...
+            <div v-if="hasValidated" class="text-center p-6 text-indigo-500 font-black animate-pulse flex flex-col items-center gap-2">
+                <i data-lucide="check-circle" class="w-6 h-6"></i>
+                Réponse enregistrée
             </div>
 
-            <div v-if="role === 'admin'" class="mt-12 p-6 bg-slate-900 text-white rounded-3xl flex justify-between items-center">
-                <span class="text-xs">Prêts : <b>{{ playersFinishedBlock }} / {{ players.length }}</b></span>
-                <button @click="nextStep" class="px-6 py-3 bg-indigo-600 rounded-xl text-xs font-black">Forcer Suite</button>
+            <div v-if="role === 'admin'" class="mt-10 p-5 bg-slate-900 text-white rounded-[2rem] flex justify-between items-center shadow-lg">
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-indigo-500 animate-ping"></span>
+                    <span class="text-[10px] uppercase font-black">Prêts : {{ playersFinishedBlock }} / {{ players.length }}</span>
+                </div>
+                <button @click="nextStep" class="px-5 py-2 bg-indigo-600 rounded-xl text-[10px] font-black uppercase hover:bg-indigo-500">Forcer Suite</button>
             </div>
         </div>
 
         <!-- ÉCRAN D'ATTENTE (Fin de bloc) -->
         <div v-else-if="isWaitingForBlock && session.status === 'playing'" class="p-12 text-center animate-pop">
-            <div class="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-8 animate-pulse">
+            <div class="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center mx-auto mb-8 animate-pulse shadow-inner">
                 <i data-lucide="hourglass" class="w-10 h-10 text-indigo-400"></i>
             </div>
             <h2 class="text-3xl font-black mb-4">Bloc terminé !</h2>
-            <p class="text-slate-500 mb-10">Attends les autres joueurs...</p>
+            <p class="text-slate-500 mb-10">Attends les autres joueurs pour voir le classement...</p>
             
-            <div class="bg-slate-50 p-6 rounded-3xl border border-slate-100 mb-10">
-                <div class="flex items-center justify-center gap-2 font-black text-2xl text-slate-700">
-                    {{ playersFinishedBlock }} <span class="text-slate-300">/</span> {{ players.length }}
+            <div class="bg-slate-50 p-8 rounded-[2.5rem] border-2 border-slate-100 mb-10 shadow-sm">
+                <div class="text-[10px] uppercase font-black text-slate-400 mb-2">Progression du groupe</div>
+                <div class="flex items-center justify-center gap-3 font-black text-4xl text-slate-700">
+                    {{ playersFinishedBlock }} <span class="text-slate-200">/</span> {{ players.length }}
                 </div>
             </div>
 
             <div v-if="role === 'admin'">
-                <button @click="nextStep" class="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-xl">
+                <button @click="nextStep" class="btn-press w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-xl shadow-lg">
                     Voir le Classement
                 </button>
             </div>
@@ -165,33 +197,76 @@
 
         <!-- 5. CLASSEMENT INTERMÉDIAIRE -->
         <div v-else-if="session && session.status === 'checkpoint'" class="p-8 text-center animate-pop">
-            <h2 class="text-3xl font-black mb-8 text-slate-900">Classement</h2>
-            <div class="space-y-3 mb-12 max-w-sm mx-auto">
-                <div v-for="(p, i) in sortedPlayers" :key="p.id" 
-                    class="flex items-center p-5 rounded-3xl border-2" 
-                    :class="[p.id === userId ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-50 border-slate-100']">
-                    <span class="w-8 font-black text-xl">#{{ i+1 }}</span>
-                    <span class="flex-grow text-left font-black pl-4 truncate">{{ p.name }}</span>
-                    <span class="font-black text-xl">{{ p.score }} pts</span>
+            <h2 class="text-3xl font-black mb-10 text-slate-900 flex items-center justify-center gap-3">
+                <i data-lucide="bar-chart-2" class="text-indigo-600"></i> Classement
+            </h2>
+            
+            <!-- Podium Top 3 -->
+            <div class="flex items-end justify-center gap-2 mb-10 min-h-[160px]">
+                <div v-if="sortedPlayers[1]" class="flex flex-col items-center">
+                    <div :class="[getPlayerColor(sortedPlayers[1].name), 'w-12 h-12 rounded-full border-4 border-white shadow-md flex items-center justify-center text-white font-black uppercase']">{{ sortedPlayers[1].name.charAt(0) }}</div>
+                    <div class="bg-slate-200 w-16 h-12 rounded-t-xl mt-2 flex items-center justify-center font-black text-slate-500">2</div>
+                    <span class="text-[10px] font-bold mt-1 truncate w-16">{{ sortedPlayers[1].name }}</span>
+                </div>
+                <div v-if="sortedPlayers[0]" class="flex flex-col items-center">
+                    <i data-lucide="crown" class="w-6 h-6 text-yellow-500 mb-1"></i>
+                    <div :class="[getPlayerColor(sortedPlayers[0].name), 'w-16 h-16 rounded-full border-4 border-white shadow-lg flex items-center justify-center text-white text-xl font-black uppercase']">{{ sortedPlayers[0].name.charAt(0) }}</div>
+                    <div class="bg-yellow-400 w-20 h-20 rounded-t-xl mt-2 flex items-center justify-center font-black text-yellow-800 text-2xl">1</div>
+                    <span class="text-xs font-black mt-1 truncate w-20">{{ sortedPlayers[0].name }}</span>
+                </div>
+                <div v-if="sortedPlayers[2]" class="flex flex-col items-center">
+                    <div :class="[getPlayerColor(sortedPlayers[2].name), 'w-10 h-10 rounded-full border-4 border-white shadow-md flex items-center justify-center text-white font-black uppercase']">{{ sortedPlayers[2].name.charAt(0) }}</div>
+                    <div class="bg-orange-200 w-14 h-8 rounded-t-xl mt-2 flex items-center justify-center font-black text-orange-600">3</div>
+                    <span class="text-[10px] font-bold mt-1 truncate w-14">{{ sortedPlayers[2].name }}</span>
                 </div>
             </div>
+
+            <!-- Liste scrollable pour le reste -->
+            <div class="bg-slate-50 rounded-3xl p-4 border border-slate-100 max-h-48 overflow-y-auto custom-scrollbar mb-10">
+                <div v-for="(p, i) in sortedPlayers" :key="p.id" 
+                    class="flex items-center p-3 mb-2 rounded-xl border" 
+                    :class="[p.id === userId ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-white border-slate-100']">
+                    <span class="w-6 font-black text-xs">#{{ i+1 }}</span>
+                    <div :class="[getPlayerColor(p.name), 'w-6 h-6 rounded-full mx-2 flex items-center justify-center text-white text-[10px] font-black uppercase shadow-inner']" v-if="p.id !== userId">
+                        {{ p.name.charAt(0) }}
+                    </div>
+                    <span class="flex-grow text-left font-bold truncate">{{ p.name }}</span>
+                    <span class="font-black text-sm">{{ p.score }} pts</span>
+                </div>
+            </div>
+
             <div v-if="role === 'admin'">
-                <button @click="resumeQuiz" class="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black text-2xl">
-                    Bloc suivant <i data-lucide="play" class="w-6 h-6 inline"></i>
+                <button @click="resumeQuiz" class="btn-press w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-2xl shadow-xl hover:bg-indigo-700">
+                    Bloc suivant <i data-lucide="chevrons-right" class="w-6 h-6 inline"></i>
                 </button>
             </div>
         </div>
 
         <!-- 6. RÉSULTATS FINAUX -->
         <div v-else-if="session && session.status === 'results'" class="p-10 text-center animate-pop">
-            <h2 class="text-5xl font-black mb-10 text-slate-900">FIN DU QUIZ</h2>
-            <div class="bg-slate-900 text-white p-12 rounded-[3.5rem] mb-14">
-                <div class="text-3xl font-black text-yellow-400 mb-4">{{ sortedPlayers[0]?.name }} gagne !</div>
-                <div class="text-8xl font-black mb-4">{{ sortedPlayers[0]?.score }}</div>
-                <div class="text-sm font-black text-slate-500">POINTS SUR 15</div>
+            <h2 class="text-4xl font-black mb-10 text-slate-900">PODIUM FINAL</h2>
+            
+            <div class="space-y-4 mb-14">
+                <div v-for="(p, i) in sortedPlayers.slice(0, 3)" :key="p.id" 
+                    class="flex items-center p-6 rounded-[2.5rem] shadow-xl border-4"
+                    :class="[
+                        i === 0 ? 'bg-slate-900 text-white border-yellow-400 scale-105' : 'bg-white border-slate-50',
+                        p.id === userId ? 'ring-4 ring-indigo-200' : ''
+                    ]">
+                    <span class="text-4xl mr-6">{{ ['🥇', '🥈', '🥉'][i] }}</span>
+                    <div class="flex-grow text-left">
+                        <div class="text-[10px] font-black uppercase tracking-widest" :class="i === 0 ? 'text-yellow-400' : 'text-slate-400'">{{ ['Gagnant', 'Deuxième', 'Troisième'][i] }}</div>
+                        <div class="text-2xl font-black truncate">{{ p.name }}</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-3xl font-black">{{ p.score }}</div>
+                        <div class="text-[10px] font-black uppercase text-slate-500">pts</div>
+                    </div>
+                </div>
             </div>
-            <button @click="resetAll" class="text-slate-400 font-black uppercase text-xs flex items-center gap-3 mx-auto">
-                <i data-lucide="refresh-cw" class="w-4 h-4"></i> Recommencer
+
+            <button @click="resetAll" class="btn-press text-slate-400 font-black uppercase text-xs flex items-center gap-3 mx-auto hover:text-indigo-500 transition-colors">
+                <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Recommencer une session
             </button>
         </div>
     </div>
@@ -219,103 +294,103 @@
     const ALL_QUESTIONS = [
         { question: "Quelle est la capitale de l'Australie ?", options: ["Sydney", "Melbourne", "Canberra", "Perth"], answer: 2 },
         { question: "Complétez la suite : 1, 3, 6, 10, ... ?", options: ["12", "15", "18", "21"], answer: 1 },
-        { question: "Quel film ?", options: ["Madagascar", "Le Roi Lion", "Bambi", "Tarzan"], answer: 1, image: "🦁👑" },
+        { question: "Quel film se cache derrière ces emojis ?", options: ["Madagascar", "Le Roi Lion", "Bambi", "Tarzan"], answer: 1, image: "🦁👑" },
         { question: "Combien de cœurs a une pieuvre ?", options: ["1", "2", "3", "8"], answer: 2 },
-        { question: "Quel instrument possède 88 touches ?", options: ["Accordéon", "Harpe", "Piano", "Flûte"], answer: 2 },
-        { question: "Plus j'ai de trous, mieux je contiens l'eau ?", options: ["Passoire", "Éponge", "Nuage", "Filet"], answer: 1 },
+        { question: "Quel instrument possède 88 touches ?", options: ["Accordéon", "Harpe", "Piano", "Flûte"], answer: 2, image: "🎹" },
+        { question: "Plus j'ai de trous, mieux je contiens l'eau ?", options: ["Passoire", "Éponge", "Nuage", "Filet"], answer: 1, image: "🧽" },
         { question: "Quelle planète est surnommée la 'Rouge' ?", options: ["Vénus", "Mars", "Jupiter", "Saturne"], answer: 1 },
         { question: "Qui a peint la Joconde ?", options: ["Picasso", "Van Gogh", "De Vinci", "Monet"], answer: 2 },
-        { question: "L'animal emblème officiel de la France ?", options: ["L'Aigle", "Le Coq", "Le Loup", "L'Ours"], answer: 1 },
+        { question: "L'animal emblème officiel de la France ?", options: ["L'Aigle", "Le Coq", "Le Loup", "L'Ours"], answer: 1, image: "🐓" },
         { question: "Combien de secondes dans une heure ?", options: ["60", "360", "3600", "1200"], answer: 2 },
-        { question: "Qui a inventé les frites ?", options: ["France", "Belgique", "USA", "Espagne"], answer: 1 },
+        { question: "Qui a inventé les frites ?", options: ["France", "Belgique", "USA", "Espagne"], answer: 1, image: "🍟" },
         { question: "Combien de mois ont 28 jours ?", options: ["1 seul", "6 mois", "Tous", "Aucun"], answer: 2 },
-        { question: "Une forme à 8 côtés ?", options: ["Hexagone", "Octogone", "Heptagone", "Décagone"], answer: 1 },
+        { question: "Une forme à 8 côtés ?", options: ["Hexagone", "Octogone", "Heptagone", "Décagone"], answer: 1, image: "🛑" },
         { question: "Mélange Bleu + Rouge ?", options: ["Vert", "Orange", "Violet", "Rose"], answer: 2 },
         { question: "Qui est le 'Roi de la Pop' ?", options: ["Elvis", "Michael Jackson", "Prince", "Bowie"], answer: 1 },
         { question: "Capitale du Canada ?", options: ["Toronto", "Ottawa", "Montréal", "Québec"], answer: 1 },
-        { question: "Symbole chimique de l'Or ?", options: ["Ag", "Fe", "Au", "Or"], answer: 2 },
-        { question: "Combien de pattes a une araignée ?", options: ["6", "8", "10", "12"], answer: 1 },
+        { question: "Symbole chimique de l'Or ?", options: ["Ag", "Fe", "Au", "Or"], answer: 2, image: "💰" },
+        { question: "Combien de pattes a une araignée ?", options: ["6", "8", "10", "12"], answer: 1, image: "🕷️" },
         { question: "Le plus grand océan ?", options: ["Atlantique", "Indien", "Pacifique", "Arctique"], answer: 2 },
-        { question: "Devinez l'animal : 🦓", options: ["Cheval", "Zèbre", "Âne", "Okapi"], answer: 1 },
+        { question: "Devinez l'animal représenté ?", options: ["Cheval", "Zèbre", "Âne", "Okapi"], answer: 1, image: "🦓" },
         { question: "Qui a écrit Les Misérables ?", options: ["Zola", "Hugo", "Verne", "Balzac"], answer: 1 },
         { question: "La planète la plus proche du Soleil ?", options: ["Vénus", "Mars", "Mercure", "Terre"], answer: 2 },
-        { question: "Couleur de l'Émeraude ?", options: ["Rouge", "Bleu", "Vert", "Jaune"], answer: 2 },
-        { question: "Nombre de joueurs dans une équipe de foot ?", options: ["10", "11", "12", "15"], answer: 1 },
-        { question: "L'inventeur de l'ampoule ?", options: ["Tesla", "Edison", "Newton", "Einstein"], answer: 1 },
-        { question: "Le plus grand mammifère ?", options: ["Éléphant", "Baleine Bleue", "Requin", "Girafe"], answer: 1 },
+        { question: "Couleur de l'Émeraude ?", options: ["Rouge", "Bleu", "Vert", "Jaune"], answer: 2, image: "💎" },
+        { question: "Nombre de joueurs dans une équipe de foot ?", options: ["10", "11", "12", "15"], answer: 1, image: "⚽" },
+        { question: "L'inventeur de l'ampoule ?", options: ["Tesla", "Edison", "Newton", "Einstein"], answer: 1, image: "💡" },
+        { question: "Le plus grand mammifère ?", options: ["Éléphant", "Baleine Bleue", "Requin", "Girafe"], answer: 1, image: "🐋" },
         { question: "Capitale du Japon ?", options: ["Kyoto", "Osaka", "Tokyo", "Seoul"], answer: 2 },
-        { question: "Qui a découvert la gravité ?", options: ["Einstein", "Darwin", "Newton", "Galilée"], answer: 2 },
-        { question: "Combien de continents ?", options: ["5", "6", "7", "8"], answer: 2 },
-        { question: "Film : ⚡👓", options: ["Star Wars", "Harry Potter", "Marvel", "Narnia"], answer: 1 },
+        { question: "Qui a découvert la gravité ?", options: ["Einstein", "Darwin", "Newton", "Galilée"], answer: 2, image: "🍎" },
+        { question: "Combien de continents ?", options: ["5", "6", "7", "8"], answer: 2, image: "🌍" },
+        { question: "Quel film est représenté ici ?", options: ["Star Wars", "Harry Potter", "Marvel", "Narnia"], answer: 1, image: "⚡👓" },
         { question: "Quel gaz respire-t-on ?", options: ["Azote", "Oxygène", "CO2", "Hydrogène"], answer: 1 },
         { question: "La Joconde est au musée du... ?", options: ["Prado", "Louvre", "MET", "Orsay"], answer: 1 },
         { question: "Combien font 7 x 8 ?", options: ["54", "56", "64", "48"], answer: 1 },
-        { question: "Monnaie des USA ?", options: ["Euro", "Livre", "Dollar", "Yen"], answer: 2 },
-        { question: "Quel pays a la Tour de Pise ?", options: ["France", "Italie", "Espagne", "Grèce"], answer: 1 },
-        { question: "Combien de couleurs dans l'arc-en-ciel ?", options: ["5", "6", "7", "8"], answer: 2 },
-        { question: "Le métal le plus cher ?", options: ["Argent", "Platine", "Or", "Rhodium"], answer: 3 },
-        { question: "Qui est l'assistant de Sherlock ?", options: ["Wilson", "Watson", "Alfred", "Robin"], answer: 1 },
+        { question: "Monnaie des USA ?", options: ["Euro", "Livre", "Dollar", "Yen"], answer: 2, image: "💵" },
+        { question: "Quel pays a la Tour de Pise ?", options: ["France", "Italie", "Espagne", "Grèce"], answer: 1, image: "🇮🇹" },
+        { question: "Combien de couleurs dans l'arc-en-ciel ?", options: ["5", "6", "7", "8"], answer: 2, image: "🌈" },
+        { question: "Le métal le plus précieux ici ?", options: ["Argent", "Platine", "Or", "Rhodium"], answer: 3 },
+        { question: "Qui est l'assistant de Sherlock ?", options: ["Wilson", "Watson", "Alfred", "Robin"], answer: 1, image: "🔍" },
         { question: "Capitale de l'Italie ?", options: ["Milan", "Venise", "Rome", "Naples"], answer: 2 },
-        { question: "Devinez : 🧛‍♂️", options: ["Loup-garou", "Vampire", "Fantôme", "Momie"], answer: 1 },
-        { question: "Plus haut sommet du monde ?", options: ["K2", "Everest", "Mont Blanc", "Annapurna"], answer: 1 },
+        { question: "Devinez la créature ?", options: ["Loup-garou", "Vampire", "Fantôme", "Momie"], answer: 1, image: "🧛‍♂️" },
+        { question: "Plus haut sommet du monde ?", options: ["K2", "Everest", "Mont Blanc", "Annapurna"], answer: 1, image: "🏔️" },
         { question: "Quelle langue au Brésil ?", options: ["Espagnol", "Portugais", "Anglais", "Français"], answer: 1 },
-        { question: "Qui est Mickey Mouse ?", options: ["Un rat", "Une souris", "Un chat", "Un chien"], answer: 1 },
-        { question: "La cité de la peur est un film de... ?", options: ["Inconnus", "Nuls", "Splendid", "Bronzés"], answer: 1 },
+        { question: "Qui est Mickey Mouse ?", options: ["Un rat", "Une souris", "Un chat", "Un chien"], answer: 1, image: "🐭" },
+        { question: "Quel film d'horreur ?", options: ["Ça", "Joker", "Annabelle", "Poltergeist"], answer: 0, image: "🤡🎈" },
         { question: "Combien de jours en février (hors bissextile) ?", options: ["28", "29", "30", "31"], answer: 0 },
-        { question: "Planète aux anneaux ?", options: ["Jupiter", "Saturne", "Uranus", "Neptune"], answer: 1 },
-        { question: "L'organe qui pompe le sang ?", options: ["Foie", "Poumon", "Cœur", "Reins"], answer: 2 },
-        { question: "Animal le plus rapide ?", options: ["Lion", "Guépard", "Loup", "Antilope"], answer: 1 },
+        { question: "Planète aux anneaux ?", options: ["Jupiter", "Saturne", "Uranus", "Neptune"], answer: 1, image: "🪐" },
+        { question: "L'organe qui pompe le sang ?", options: ["Foie", "Poumon", "Cœur", "Reins"], answer: 2, image: "❤️" },
+        { question: "Animal le plus rapide ?", options: ["Lion", "Guépard", "Loup", "Antilope"], answer: 1, image: "🐆" },
         { question: "Capitale de l'Espagne ?", options: ["Barcelone", "Séville", "Madrid", "Valence"], answer: 2 },
         { question: "Suite : 2, 4, 8, 16, ... ?", options: ["20", "24", "30", "32"], answer: 3 },
         { question: "Qui a peint le plafond de la Sixtine ?", options: ["Léonard", "Michel-Ange", "Raphaël", "Donatello"], answer: 1 },
-        { question: "Le plus grand désert ?", options: ["Sahara", "Gobi", "Antarctique", "Kalahari"], answer: 2 },
+        { question: "Le plus grand désert ?", options: ["Sahara", "Gobi", "Antarctique", "Kalahari"], answer: 2, image: "🏜️" },
         { question: "Quel pays a inventé le Karaté ?", options: ["Chine", "Japon", "Corée", "Thaïlande"], answer: 1 },
-        { question: "L'étoile la plus proche ?", options: ["Sirius", "Vega", "Soleil", "Polaris"], answer: 2 },
+        { question: "L'étoile la plus proche ?", options: ["Sirius", "Vega", "Soleil", "Polaris"], answer: 2, image: "☀️" },
         { question: "Combien d'os dans le corps humain ?", options: ["106", "206", "306", "406"], answer: 1 },
-        { question: "Symbole de la paix ?", options: ["Aigle", "Colombe", "Lion", "Hibou"], answer: 1 },
-        { question: "Qui est le dieu du Tonnerre ?", options: ["Odin", "Loki", "Thor", "Zeus"], answer: 2 },
+        { question: "Symbole de la paix ?", options: ["Aigle", "Colombe", "Lion", "Hibou"], answer: 1, image: "🕊️" },
+        { question: "Qui est le dieu du Tonnerre ?", options: ["Odin", "Loki", "Thor", "Zeus"], answer: 2, image: "🔨" },
         { question: "Capitale de l'Allemagne ?", options: ["Munich", "Berlin", "Hambourg", "Cologne"], answer: 1 },
-        { question: "Nombre de cordes sur une guitare standard ?", options: ["4", "5", "6", "12"], answer: 2 },
-        { question: "Devinez : 🧊🚢", options: ["Titanic", "Iceberg", "Frozen", "Nemo"], answer: 0 },
+        { question: "Nombre de cordes sur une guitare standard ?", options: ["4", "5", "6", "12"], answer: 2, image: "🎸" },
+        { question: "Quel film ?", options: ["Titanic", "Iceberg", "Frozen", "Nemo"], answer: 0, image: "🧊🚢" },
         { question: "Le pays de la Samba ?", options: ["Argentine", "Brésil", "Mexique", "Chili"], answer: 1 },
-        { question: "Fruit pour faire du vin ?", options: ["Pomme", "Poire", "Raisin", "Cerise"], answer: 2 },
-        { question: "Quel super-héros a un bouclier ?", options: ["Iron Man", "Batman", "Capt. America", "Thor"], answer: 2 },
+        { question: "Fruit pour faire du vin ?", options: ["Pomme", "Poire", "Raisin", "Cerise"], answer: 2, image: "🍇" },
+        { question: "Quel super-héros a ce bouclier ?", options: ["Iron Man", "Batman", "Capt. America", "Thor"], answer: 2, image: "🛡️" },
         { question: "Combien de millimètres dans un mètre ?", options: ["100", "1000", "10000", "10"], answer: 1 },
         { question: "Capitale de la Russie ?", options: ["St-Pétersbourg", "Moscou", "Kiev", "Varsovie"], answer: 1 },
-        { question: "Qui est Harry Potter ?", options: ["Sorcier", "Mage", "Elfe", "Vampire"], answer: 0 },
-        { question: "Le métal qui compose les canettes ?", options: ["Fer", "Acier", "Aluminium", "Cuivre"], answer: 2 },
-        { question: "Animal qui vit au pôle Nord ?", options: ["Pingouin", "Manchot", "Ours Polaire", "Dromadaire"], answer: 2 },
+        { question: "Métier de Harry Potter ?", options: ["Sorcier", "Mage", "Elfe", "Vampire"], answer: 0, image: "🪄" },
+        { question: "Le métal des canettes ?", options: ["Fer", "Acier", "Aluminium", "Cuivre"], answer: 2 },
+        { question: "Animal qui vit au pôle Nord ?", options: ["Pingouin", "Manchot", "Ours Polaire", "Dromadaire"], answer: 2, image: "🐻‍❄️" },
         { question: "Qui a créé Facebook ?", options: ["Bill Gates", "Elon Musk", "Zuckerberg", "Jobs"], answer: 2 },
         { question: "Capitale de la Grèce ?", options: ["Sparte", "Athènes", "Rome", "Héraklion"], answer: 1 },
-        { question: "Combien de minutes dans une heure ?", options: ["30", "60", "90", "100"], answer: 1 },
+        { question: "Combien de minutes dans une heure ?", options: ["30", "60", "90", "100"], answer: 1, image: "⏰" },
         { question: "Couleur de la boîte noire d'un avion ?", options: ["Noir", "Blanc", "Orange", "Rouge"], answer: 2 },
-        { question: "Le roi des animaux ?", options: ["Tigre", "Lion", "Éléphant", "Ours"], answer: 1 },
+        { question: "Le roi des animaux ?", options: ["Tigre", "Lion", "Éléphant", "Ours"], answer: 1, image: "🦁" },
         { question: "Qui a écrit Harry Potter ?", options: ["Tolkien", "JK Rowling", "King", "Lewis"], answer: 1 },
         { question: "Capitale du Portugal ?", options: ["Porto", "Lisbonne", "Madrid", "Faro"], answer: 1 },
-        { question: "Quelle fleur est le symbole de l'amour ?", options: ["Tulipe", "Rose", "Marguerite", "Lys"], answer: 1 },
-        { question: "Devinez l'animal : 🦘", options: ["Wombat", "Kangourou", "Koala", "Emeu"], answer: 1 },
+        { question: "Symbole de l'amour ?", options: ["Tulipe", "Rose", "Marguerite", "Lys"], answer: 1, image: "🌹" },
+        { question: "Quel animal est-ce ?", options: ["Wombat", "Kangourou", "Koala", "Emeu"], answer: 1, image: "🦘" },
         { question: "Combien de continents ?", options: ["4", "5", "6", "7"], answer: 3 },
-        { question: "Qui est le dieu grec de la Mer ?", options: ["Zeus", "Hadès", "Poséidon", "Ares"], answer: 2 },
-        { question: "Le premier homme sur la Lune ?", options: ["Armstrong", "Aldrin", "Gagarine", "Musk"], answer: 0 },
+        { question: "Dieu grec de la Mer ?", options: ["Zeus", "Hadès", "Poséidon", "Ares"], answer: 2, image: "🔱" },
+        { question: "Le premier homme sur la Lune ?", options: ["Armstrong", "Aldrin", "Gagarine", "Musk"], answer: 0, image: "🚀" },
         { question: "Capitale de la Belgique ?", options: ["Anvers", "Bruges", "Bruxelles", "Gand"], answer: 2 },
-        { question: "Quel pays a la Tour Eiffel ?", options: ["UK", "France", "USA", "Chine"], answer: 1 },
+        { question: "Où se trouve cette tour ?", options: ["Londres", "Paris", "New York", "Pékin"], answer: 1, image: "🗼" },
         { question: "Combien font 9 x 9 ?", options: ["71", "81", "91", "100"], answer: 1 },
-        { question: "L'organe pour voir ?", options: ["Oreille", "Nez", "Oeil", "Langue"], answer: 2 },
-        { question: "Fruit d'Adam ?", options: ["Pomme", "Banane", "Poire", "Orange"], answer: 0 },
+        { question: "L'organe pour voir ?", options: ["Oreille", "Nez", "Oeil", "Langue"], answer: 2, image: "👁️" },
+        { question: "Fruit défendu ?", options: ["Pomme", "Banane", "Poire", "Orange"], answer: 0, image: "🍎" },
         { question: "Le plus petit pays ?", options: ["Monaco", "Vatican", "Andorre", "Malte"], answer: 1 },
         { question: "Capitale de la Suisse ?", options: ["Zurich", "Genève", "Berne", "Bâle"], answer: 2 },
         { question: "Couleur du ciel ?", options: ["Vert", "Rouge", "Bleu", "Jaune"], answer: 2 },
-        { question: "Qui a peint le Cri ?", options: ["Munch", "Dali", "Van Gogh", "Picasso"], answer: 0 },
-        { question: "Inventeur du téléphone ?", options: ["Bell", "Edison", "Tesla", "Newton"], answer: 0 },
+        { question: "Qui a peint le Cri ?", options: ["Munch", "Dali", "Van Gogh", "Picasso"], answer: 0, image: "😱" },
+        { question: "Inventeur du téléphone ?", options: ["Bell", "Edison", "Tesla", "Newton"], answer: 0, image: "☎️" },
         { question: "Capitale de la Chine ?", options: ["Shanghai", "Pékin", "Hong Kong", "Canton"], answer: 1 },
-        { question: "L'instrument de Sherlock Holmes ?", options: ["Piano", "Violon", "Flûte", "Harpe"], answer: 1 },
-        { question: "Combien de pattes a un mille-pattes ?", options: ["1000", "Environ 100", "40", "12"], answer: 1 },
-        { question: "Qui est l'ennemi de Batman ?", options: ["Thanos", "Joker", "Vador", "Lex"], answer: 1 },
+        { question: "L'instrument de Sherlock Holmes ?", options: ["Piano", "Violon", "Flûte", "Harpe"], answer: 1, image: "🎻" },
+        { question: "Combien de pattes a cet insecte ?", options: ["1000", "Environ 100", "40", "12"], answer: 1, image: "🐛" },
+        { question: "Ennemi de Batman ?", options: ["Thanos", "Joker", "Vador", "Lex"], answer: 1, image: "🃏" },
         { question: "Capitale de l'Autriche ?", options: ["Vienne", "Salzbourg", "Linz", "Graz"], answer: 0 },
-        { question: "Combien de joueurs au basket ?", options: ["5", "6", "11", "12"], answer: 0 },
-        { question: "Le continent de l'Égypte ?", options: ["Asie", "Afrique", "Europe", "Amérique"], answer: 1 },
-        { question: "Qui a écrit Le Petit Prince ?", options: ["Hugo", "Saint-Exupéry", "Verne", "Molière"], answer: 1 },
-        { question: "Le gaz dans les ballons ?", options: ["Oxygène", "Hélium", "Azote", "CO2"], answer: 1 },
+        { question: "Nombre de joueurs au basket ?", options: ["5", "6", "11", "12"], answer: 0, image: "🏀" },
+        { question: "Continent de l'Égypte ?", options: ["Asie", "Afrique", "Europe", "Amérique"], answer: 1, image: "🐪" },
+        { question: "Qui a écrit ce livre ?", options: ["Hugo", "Saint-Exupéry", "Verne", "Molière"], answer: 1, image: "🤴🌹" },
+        { question: "Gaz dans les ballons ?", options: ["Oxygène", "Hélium", "Azote", "CO2"], answer: 1, image: "https://images.unsplash.com/photo-1530103043960-ef38714abb15?auto=format&fit=crop&q=80&w=400" },
         { question: "Capitale du Maroc ?", options: ["Casablanca", "Marrakech", "Rabat", "Fès"], answer: 2 }
     ];
 
@@ -332,8 +407,10 @@
             const sessionId = ref('');
             const tempName = ref('');
             const tempId = ref('');
+            const errorMessage = ref('');
             const session = ref(null);
             const players = ref([]);
+            const nameInput = ref(null);
             
             const playerLocalIndex = ref(0);
             const selectedIdx = ref(null);
@@ -343,6 +420,24 @@
                 try {
                     const cred = await signInAnonymously(auth);
                     userId.value = cred.user.uid;
+                    
+                    // Récupération de l'ID session depuis l'URL ou le LocalStorage
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const joinId = urlParams.get('join');
+                    const savedSessionId = localStorage.getItem('quiz_session_id');
+                    const savedRole = localStorage.getItem('quiz_role');
+                    const savedName = localStorage.getItem('quiz_name');
+
+                    if (joinId) {
+                        tempId.value = joinId.toUpperCase();
+                        nextTick(() => { if (nameInput.value) nameInput.value.focus(); });
+                    } else if (savedSessionId && savedRole && savedName) {
+                        // Reconnexion automatique si les données existent
+                        sessionId.value = savedSessionId;
+                        role.value = savedRole;
+                        name.value = savedName;
+                        watchSession(savedSessionId);
+                    }
                 } catch (e) {
                     console.error(e);
                 } finally {
@@ -351,21 +446,39 @@
                 }
             });
 
+            const getPlayerColor = (playerName) => {
+                const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-orange-500'];
+                let hash = 0;
+                for (let i = 0; i < playerName.length; i++) hash = playerName.charCodeAt(i) + ((hash << 5) - hash);
+                return colors[Math.abs(hash) % colors.length];
+            };
+
+            const isImageUrl = (str) => {
+                if (!str) return false;
+                return str.startsWith('http') || str.startsWith('https') || str.startsWith('/');
+            };
+
+            const getOptionClass = (idx) => {
+                if (!hasValidated.value) {
+                    return selectedIdx.value === idx ? 'border-indigo-600 bg-indigo-50 shadow-md' : 'border-slate-100 hover:border-indigo-300';
+                }
+                const q = session.value.questions[playerLocalIndex.value];
+                if (idx === q.answer) return 'border-green-500 bg-green-50 text-green-700 shadow-sm';
+                if (selectedIdx.value === idx && idx !== q.answer) return 'border-red-500 bg-red-50 text-red-700 opacity-80';
+                return 'border-slate-100 bg-slate-50 opacity-40 grayscale';
+            };
+
             const generateQR = (id) => {
-                // On utilise nextTick pour s'assurer que le DOM est prêt
                 nextTick(() => {
                     const qrEl = document.getElementById("qrcode");
                     if (qrEl) {
                         qrEl.innerHTML = "";
                         const url = window.location.origin + window.location.pathname + "?join=" + id;
-                        // On attend un tout petit peu pour que l'animation de transition soit terminée
                         setTimeout(() => {
                             new QRCode(qrEl, {
                                 text: url,
-                                width: 128,
-                                height: 128,
-                                colorDark: "#4f46e5",
-                                colorLight: "#ffffff",
+                                width: 128, height: 128,
+                                colorDark: "#4f46e5", colorLight: "#ffffff",
                                 correctLevel: QRCode.CorrectLevel.H
                             });
                         }, 50);
@@ -376,15 +489,9 @@
             const getRandomQuestions = () => {
                 let used = JSON.parse(localStorage.getItem('quiz_memory') || '[]');
                 let available = ALL_QUESTIONS.map((_, i) => i).filter(idx => !used.includes(idx));
-                
-                if (available.length < 15) {
-                    used = [];
-                    available = ALL_QUESTIONS.map((_, i) => i);
-                }
-
+                if (available.length < 15) { used = []; available = ALL_QUESTIONS.map((_, i) => i); }
                 const selectedIndices = available.sort(() => 0.5 - Math.random()).slice(0, 15);
                 localStorage.setItem('quiz_memory', JSON.stringify([...used, ...selectedIndices]));
-                
                 return selectedIndices.map(idx => ALL_QUESTIONS[idx]);
             };
 
@@ -392,54 +499,65 @@
                 if (!tempName.value) return;
                 const id = Math.random().toString(36).substring(2, 6).toUpperCase();
                 const selectedQs = getRandomQuestions();
-                
                 const sRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id);
                 await setDoc(sRef, { 
-                    id, status: 'lobby', currentBlock: 0, adminId: userId.value,
+                    id, status: 'lobby', currentBlock: 0, adminId: userId.value, adminName: tempName.value,
                     questions: selectedQs
                 });
-                
                 const pRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id, 'players', userId.value);
                 await setDoc(pRef, { name: tempName.value, score: 0, localIndex: 0, finishedBlock: false });
-
-                name.value = tempName.value;
-                sessionId.value = id;
-                role.value = 'admin';
+                
+                name.value = tempName.value; sessionId.value = id; role.value = 'admin';
+                localStorage.setItem('quiz_session_id', id);
+                localStorage.setItem('quiz_role', 'admin');
+                localStorage.setItem('quiz_name', tempName.value);
+                
                 watchSession(id);
             };
 
             const joinGame = async () => {
+                errorMessage.value = "";
                 if (!tempName.value || !tempId.value) return;
                 const id = tempId.value.toUpperCase();
                 const sRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id);
                 const snap = await getDoc(sRef);
                 if (snap.exists()) {
                     const pRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id, 'players', userId.value);
-                    await setDoc(pRef, { name: tempName.value, score: 0, localIndex: 0, finishedBlock: false });
-                    name.value = tempName.value;
-                    sessionId.value = id;
-                    role.value = 'player';
+                    const pSnap = await getDoc(pRef);
+                    if (!pSnap.exists()) {
+                        await setDoc(pRef, { name: tempName.value, score: 0, localIndex: 0, finishedBlock: false });
+                    }
+                    
+                    name.value = tempName.value; sessionId.value = id; role.value = 'player';
+                    localStorage.setItem('quiz_session_id', id);
+                    localStorage.setItem('quiz_role', 'player');
+                    localStorage.setItem('quiz_name', tempName.value);
+                    
                     watchSession(id);
+                } else {
+                    errorMessage.value = "Code de session introuvable...";
                 }
             };
 
             const watchSession = (id) => {
                 onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id), (s) => {
-                    const data = s.data();
-                    if (!data) return;
+                    const data = s.data(); if (!data) return;
                     session.value = data;
-                    
-                    // Si on est dans le lobby, on s'assure que le QR code est généré
-                    if (data.status === 'lobby') {
-                        generateQR(id);
-                    }
-
-                    const expectedStart = session.value.currentBlock * 5;
-                    if (playerLocalIndex.value < expectedStart) playerLocalIndex.value = expectedStart;
+                    if (data.status === 'lobby') generateQR(id);
                     nextTick(() => lucide.createIcons());
                 });
                 onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'sessions', id, 'players'), (s) => {
                     players.value = s.docs.map(d => ({id: d.id, ...d.data()}));
+                    
+                    // RECONNAISSANCE DU JOUEUR ET RÉCUPÉRATION DE L'INDEX
+                    const me = players.value.find(p => p.id === userId.value);
+                    if (me && me.localIndex !== undefined) {
+                        // On ne met à jour que si on a rafraîchi (index local à 0) 
+                        // ou si la valeur en base est plus avancée (sécurité)
+                        if (playerLocalIndex.value === 0 || me.localIndex > playerLocalIndex.value) {
+                             playerLocalIndex.value = me.localIndex;
+                        }
+                    }
                 });
             };
 
@@ -449,22 +567,24 @@
                 const q = session.value.questions[playerLocalIndex.value];
                 const isCorrect = selectedIdx.value === q.answer;
                 
-                const pRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value, 'players', userId.value);
-                const pSnap = await getDoc(pRef);
-                const scoreNow = pSnap.data().score || 0;
-                
-                const nextIdx = playerLocalIndex.value + 1;
-                const isFinished = nextIdx >= (session.value.currentBlock + 1) * 5;
+                setTimeout(async () => {
+                    const pRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value, 'players', userId.value);
+                    const pSnap = await getDoc(pRef);
+                    const scoreNow = pSnap.data().score || 0;
+                    const nextIdx = playerLocalIndex.value + 1;
+                    const isFinished = nextIdx >= (session.value.currentBlock + 1) * 5;
 
-                await updateDoc(pRef, { 
-                    score: isCorrect ? scoreNow + 1 : scoreNow,
-                    localIndex: nextIdx,
-                    finishedBlock: isFinished
-                });
+                    await updateDoc(pRef, { 
+                        score: isCorrect ? scoreNow + 1 : scoreNow,
+                        localIndex: nextIdx,
+                        finishedBlock: isFinished
+                    });
 
-                playerLocalIndex.value = nextIdx;
-                selectedIdx.value = null;
-                hasValidated.value = false;
+                    // On met à jour localement pour l'affichage immédiat
+                    playerLocalIndex.value = nextIdx;
+                    selectedIdx.value = null;
+                    hasValidated.value = false;
+                }, 2000);
             };
 
             const nextStep = () => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value), { status: 'checkpoint' });
@@ -482,16 +602,22 @@
                 }
             };
 
+            const resetAll = () => {
+                localStorage.removeItem('quiz_session_id');
+                localStorage.removeItem('quiz_role');
+                localStorage.removeItem('quiz_name');
+                window.location.reload();
+            };
+
             return {
-                loading, role, name, sessionId, tempName, tempId, session, players, userId,
-                playerLocalIndex, selectedIdx, hasValidated,
+                loading, role, name, sessionId, tempName, tempId, session, players, userId, errorMessage, nameInput,
+                playerLocalIndex, selectedIdx, hasValidated, isImageUrl, getPlayerColor, getOptionClass,
                 currentQuestion: computed(() => session.value?.questions?.[playerLocalIndex.value] || { question: '...' }),
                 isWaitingForBlock: computed(() => playerLocalIndex.value >= (session.value?.currentBlock + 1) * 5),
                 playersFinishedBlock: computed(() => players.value.filter(p => p.finishedBlock).length),
                 sortedPlayers: computed(() => [...players.value].sort((a,b) => b.score - a.score)),
-                initAdmin, joinGame, submitAndNext, nextStep, resumeQuiz,
-                updateStatus: (s) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value), { status: s }),
-                resetAll: () => window.location.reload()
+                initAdmin, joinGame, submitAndNext, nextStep, resumeQuiz, resetAll,
+                updateStatus: (s) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value), { status: s })
             }
         }
     }).mount('#app');
