@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz Familial Interactif</title>
+    <!-- Bibliothèques externes -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        [v-cloak] { display: none; }
+        .animate-pop { animation: pop 0.3s ease-out; }
+        @keyframes pop {
+            0% { transform: scale(0.95); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen">
+
+<div id="app" v-cloak class="max-w-2xl mx-auto p-4 md:pt-10">
+    <div class="bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
+        <!-- Décoration supérieure -->
+        <div class="h-3 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-full"></div>
+
+        <!-- CHARGEMENT -->
+        <div v-if="loading" class="p-20 text-center">
+            <div class="animate-spin inline-block w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full mb-6"></div>
+            <p class="text-slate-400 font-black uppercase tracking-widest text-sm">Connexion au Quiz...</p>
+        </div>
+
+        <!-- ACCUEIL : CHOIX DU RÔLE -->
+        <div v-else-if="!role" class="p-8 md:p-12 text-center animate-pop">
+            <div class="w-24 h-24 bg-indigo-100 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-lg">
+                <i data-lucide="trophy" class="w-12 h-12 text-indigo-600"></i>
+            </div>
+            <h1 class="text-5xl font-black mb-4 text-slate-900 tracking-tighter">Quiz Family</h1>
+            <p class="text-slate-500 mb-12 text-lg">Prêt à défier la famille en direct ?</p>
+            
+            <div class="space-y-4">
+                <button @click="initAdmin" class="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-xl hover:bg-indigo-700 transition-all shadow-xl flex items-center justify-center gap-3">
+                    <i data-lucide="crown" class="w-7 h-7"></i> Créer la partie (Admin)
+                </button>
+                
+                <div class="flex items-center gap-4 py-6">
+                    <div class="flex-grow border-t-2 border-slate-100"></div>
+                    <span class="text-[10px] text-slate-300 uppercase font-black tracking-widest">OU REJOINDRE</span>
+                    <div class="flex-grow border-t-2 border-slate-100"></div>
+                </div>
+
+                <div class="space-y-4">
+                    <input v-model="tempName" placeholder="Ton Prénom" class="w-full p-5 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-400 text-center font-bold text-xl bg-slate-50">
+                    <input v-model="tempId" placeholder="Code (ex: AB12)" class="w-full p-5 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-400 text-center uppercase font-black text-2xl tracking-widest bg-slate-50">
+                    <button @click="joinGame" class="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xl hover:bg-slate-800 transition-all">
+                        Rejoindre l'arène
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- SALON D'ATTENTE (LOBBY) -->
+        <div v-else-if="session && session.status === 'lobby'" class="p-8 text-center animate-pop">
+            <h2 class="text-3xl font-black mb-10 text-slate-900">En attente des joueurs</h2>
+            
+            <div class="flex flex-col md:flex-row gap-10 items-center justify-center mb-12">
+                <div class="bg-white p-6 rounded-[2rem] shadow-xl border-4 border-slate-50 flex flex-col items-center">
+                    <div id="qrcode" class="mb-6 bg-white p-2 border border-slate-100"></div>
+                    <div class="px-8 py-3 bg-indigo-50 rounded-2xl font-black text-3xl text-indigo-600 tracking-widest uppercase border-2 border-indigo-100">
+                        {{ session.id }}
+                    </div>
+                </div>
+                
+                <div class="flex-1 w-full text-left bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                    <p class="text-xs font-black uppercase text-slate-400 tracking-widest mb-6 flex items-center gap-2">
+                        <i data-lucide="users" class="w-4 h-4"></i> Participants ({{ players.length }})
+                    </p>
+                    <div class="grid grid-cols-1 gap-3 max-h-56 overflow-y-auto pr-2">
+                        <div v-for="p in players" :key="p.id" class="p-4 bg-white rounded-2xl border border-slate-200 font-bold flex items-center justify-between shadow-sm animate-pop">
+                            <span>{{ p.name }}</span>
+                            <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                        </div>
+                        <div v-if="players.length === 0" class="py-12 text-center text-slate-300 italic">
+                            En attente de la famille...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="role === 'admin'">
+                <button @click="updateStatus('playing')" :disabled="players.length === 0" class="w-full py-6 bg-indigo-600 text-white rounded-2xl font-black text-2xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all">
+                    LANCER LE QUIZ !
+                </button>
+            </div>
+            <div v-else class="p-8 bg-indigo-50 text-indigo-600 rounded-[2rem] font-black text-xl animate-pulse">
+                Attente de l'admin...
+            </div>
+        </div>
+
+        <!-- EN JEU -->
+        <div v-else-if="session && session.status === 'playing'" class="p-6 md:p-12 animate-pop">
+            <div class="flex justify-between items-center mb-8">
+                <div class="px-4 py-2 bg-slate-100 rounded-xl text-[11px] font-black text-slate-500 uppercase">Question {{ session.currentQuestionIndex + 1 }} / 15</div>
+                <span class="text-sm font-black text-indigo-600">{{ role === 'admin' ? 'BOSS' : name }}</span>
+            </div>
+
+            <div class="w-full bg-slate-100 h-3 rounded-full mb-10 overflow-hidden">
+                <div class="h-full bg-indigo-500 rounded-full transition-all duration-700" :style="{ width: ((session.currentQuestionIndex + 1)/15)*100 + '%' }"></div>
+            </div>
+
+            <h2 class="text-3xl md:text-4xl font-black mb-10 text-slate-900 leading-tight">{{ currentQuestion.question }}</h2>
+            
+            <div v-if="currentQuestion.image" class="mb-10 p-12 bg-slate-50 rounded-[3rem] text-center text-8xl shadow-inner border border-slate-100">
+                {{ currentQuestion.image }}
+            </div>
+
+            <div class="grid gap-4 mb-12">
+                <button v-for="(opt, idx) in currentQuestion.options" 
+                    :key="idx"
+                    :disabled="role === 'admin' || hasAnswered"
+                    @click="submitAnswer(idx)"
+                    :class="[
+                        'p-6 text-left rounded-3xl border-2 font-black transition-all flex items-center gap-5',
+                        selectedIdx === idx ? 'border-indigo-600 bg-indigo-50 shadow-lg' : 'border-slate-100 hover:border-indigo-300'
+                    ]">
+                    <span class="w-12 h-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-sm font-black text-slate-300">
+                        {{ String.fromCharCode(65 + idx) }}
+                    </span>
+                    <span class="text-xl">{{ opt }}</span>
+                </button>
+            </div>
+
+            <!-- Contrôles Admin -->
+            <div v-if="role === 'admin'" class="mt-12 pt-10 border-t-2 border-slate-50 flex items-center justify-between">
+                <div class="flex flex-col">
+                    <span class="text-[10px] font-black text-slate-400 uppercase">Votes reçus</span>
+                    <span class="text-2xl font-black text-slate-800">{{ playersAnswered }} / {{ players.length }}</span>
+                </div>
+                <button @click="nextStep" class="px-12 py-5 bg-slate-900 text-white rounded-2xl font-black text-xl hover:bg-slate-800 shadow-xl flex items-center gap-3 transition-transform hover:translate-x-1">
+                    SUIVANT <i data-lucide="chevron-right" class="w-6 h-6"></i>
+                </button>
+            </div>
+            
+            <div v-else-if="hasAnswered" class="text-center p-8 bg-green-50 text-green-700 rounded-[2.5rem] font-black text-xl flex items-center justify-center gap-4">
+                <i data-lucide="check-circle" class="w-7 h-7"></i> RÉPONSE ENVOYÉE !
+            </div>
+        </div>
+
+        <!-- PAUSE SCORE -->
+        <div v-else-if="session && session.status === 'checkpoint'" class="p-8 text-center animate-pop">
+            <div class="w-24 h-24 bg-yellow-100 rounded-[2rem] flex items-center justify-center mx-auto mb-8 shadow-lg">
+                <i data-lucide="award" class="w-12 h-12 text-yellow-600"></i>
+            </div>
+            <h2 class="text-4xl font-black mb-12 text-slate-900 tracking-tighter">Classement Partiel</h2>
+            
+            <div class="space-y-4 mb-12 max-w-sm mx-auto">
+                <div v-for="(p, i) in sortedPlayers" :key="p.id" 
+                    class="flex items-center p-5 rounded-3xl transition-all border-2" 
+                    :class="[p.id === userId ? 'bg-indigo-600 text-white border-indigo-500 shadow-2xl scale-105' : 'bg-slate-50 border-slate-100']">
+                    <span class="w-10 font-black text-2xl opacity-40">{{ i+1 }}</span>
+                    <span class="flex-grow text-left font-black pl-4 text-lg truncate">{{ p.name }}</span>
+                    <span class="font-black text-2xl px-4 py-1 rounded-xl" :class="p.id === userId ? 'bg-indigo-700' : 'bg-white shadow-sm'">{{ p.score }}</span>
+                </div>
+            </div>
+
+            <button v-if="role === 'admin'" @click="resumeQuiz" class="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black text-2xl shadow-xl hover:bg-indigo-700">
+                CONTINUER LA PARTIE
+            </button>
+            <p v-else class="text-slate-400 font-black uppercase text-xs tracking-widest animate-pulse">
+                L'admin va bientôt relancer...
+            </p>
+        </div>
+
+        <!-- RÉSULTATS FINAUX -->
+        <div v-else-if="session && session.status === 'results'" class="p-10 text-center animate-pop">
+            <div class="relative inline-block mb-12">
+                <div class="w-40 h-40 bg-yellow-400 rounded-[3rem] flex items-center justify-center shadow-2xl animate-bounce">
+                    <i data-lucide="crown" class="w-20 h-20 text-white"></i>
+                </div>
+            </div>
+            
+            <h2 class="text-5xl font-black mb-4 text-slate-900 tracking-tighter">FIN DU JEU !</h2>
+            <p class="text-slate-400 uppercase font-black tracking-widest text-xs mb-10 italic">Le grand gagnant est...</p>
+            
+            <div class="bg-slate-900 text-white p-12 rounded-[3.5rem] mb-14 shadow-3xl">
+                <div class="text-4xl font-black text-yellow-400 mb-6 uppercase tracking-tighter">{{ sortedPlayers[0]?.name }}</div>
+                <div class="text-8xl font-black leading-none mb-4 text-white drop-shadow-2xl">{{ sortedPlayers[0]?.score }}</div>
+                <div class="text-sm font-black text-slate-400 uppercase tracking-widest">Points sur 15</div>
+            </div>
+
+            <button @click="resetAll" class="text-slate-400 font-black uppercase text-xs hover:text-indigo-600 flex items-center gap-3 mx-auto transition-all">
+                <i data-lucide="refresh-cw" class="w-5 h-5"></i> REFAIRE UNE PARTIE
+            </button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    // --- CONFIGURATION FIREBASE (VOS CLÉS) ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyA06lwfBciF8K-mU-7OaW-1zkOFJVN3rtc",
+      authDomain: "quiz-famille-4d872.firebaseapp.com",
+      projectId: "quiz-famille-4d872",
+      storageBucket: "quiz-famille-4d872.firebasestorage.app",
+      messagingSenderId: "727437618700",
+      appId: "1:727437618700:web:0473b0a26958cb08550829",
+      measurementId: "G-N31GQNB4PW"
+    };
+
+    const appId = 'famille-quiz-4d872';
+
+    // Imports Firebase
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, onSnapshot, collection, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const { createApp, ref, computed, onMounted, nextTick } = Vue;
+
+    createApp({
+        setup() {
+            const firebaseApp = initializeApp(firebaseConfig);
+            const db = getFirestore(firebaseApp);
+            const auth = getAuth(firebaseApp);
+            
+            const loading = ref(true);
+            const userId = ref(null);
+            const role = ref(null);
+            const name = ref('');
+            const sessionId = ref('');
+            const tempName = ref('');
+            const tempId = ref('');
+            const session = ref(null);
+            const players = ref([]);
+            const hasAnswered = ref(false);
+            const selectedIdx = ref(null);
+
+            const questions = [
+                { question: "Quelle est la capitale de l'Australie ?", options: ["Sydney", "Melbourne", "Canberra", "Perth"], answer: 2 },
+                { question: "Complétez la suite logique : 1, 3, 6, 10, ... ?", options: ["12", "15", "18", "21"], answer: 1 },
+                { question: "Quel film se cache derrière ces emojis ?", options: ["Madagascar", "Le Roi Lion", "Bambi", "Tarzan"], answer: 1, image: "🦁👑" },
+                { question: "Combien de cœurs possède une pieuvre ?", options: ["1", "2", "3", "8"], answer: 2 },
+                { question: "Quel instrument possède exactement 88 touches ?", options: ["L'accordéon", "La harpe", "Le piano", "La flûte"], answer: 2 },
+                { question: "Plus j'ai de trous, mieux je contiens l'eau. Qui suis-je ?", options: ["Une passoire", "Une éponge", "Un nuage", "Un filet"], answer: 1 },
+                { question: "Quelle planète est surnommée la 'Planète Rouge' ?", options: ["Vénus", "Mars", "Jupiter", "Saturne"], answer: 1 },
+                { question: "Qui a peint la célèbre Joconde ?", options: ["Pablo Picasso", "Vincent van Gogh", "Léonard de Vinci", "Claude Monet"], answer: 2 },
+                { question: "L'animal emblème officiel de la France ?", options: ["L'Aigle", "Le Coq", "Le Loup", "L'Ours"], answer: 1 },
+                { question: "Combien y a-t-il de secondes dans une heure ?", options: ["60", "360", "3600", "1200"], answer: 2 },
+                { question: "Quel pays a officiellement inventé les frites ?", options: ["La France", "La Belgique", "Les USA", "L'Espagne"], answer: 1 },
+                { question: "Certains mois ont 31 jours, d'autres 30. Combien en ont 28 ?", options: ["1 seul", "6 mois", "Tous les mois", "Aucun"], answer: 2 },
+                { question: "Comment appelle-t-on une forme à 8 côtés ?", options: ["Un hexagone", "Un octogone", "Un heptagone", "Un décagone"], answer: 1 },
+                { question: "Quelle couleur obtient-on en mélangeant du Bleu et du Rouge ?", options: ["Du Vert", "De l'Orange", "Du Violet", "Du Rose"], answer: 2 },
+                { question: "Qui est surnommé le 'Roi de la Pop' ?", options: ["Elvis Presley", "Michael Jackson", "Prince", "David Bowie"], answer: 1 }
+            ];
+
+            onMounted(async () => {
+                try {
+                    const cred = await signInAnonymously(auth);
+                    userId.value = cred.user.uid;
+                } catch (e) {
+                    console.error("Auth error:", e);
+                } finally {
+                    loading.value = false;
+                    nextTick(() => lucide.createIcons());
+                }
+            });
+
+            const initAdmin = async () => {
+                const id = Math.random().toString(36).substring(2, 6).toUpperCase();
+                const sRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id);
+                await setDoc(sRef, { id, status: 'lobby', currentQuestionIndex: 0, adminId: userId.value });
+                sessionId.value = id;
+                role.value = 'admin';
+                watchSession(id);
+                generateQR(id);
+            };
+
+            const joinGame = async () => {
+                if (!tempName.value || !tempId.value || !userId.value) return;
+                const id = tempId.value.toUpperCase();
+                const sRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id);
+                const snap = await getDoc(sRef);
+                if (snap.exists()) {
+                    const pRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id, 'players', userId.value);
+                    await setDoc(pRef, { name: tempName.value, score: 0, lastAnswer: -1 });
+                    name.value = tempName.value;
+                    sessionId.value = id;
+                    role.value = 'player';
+                    watchSession(id);
+                } else {
+                    alert("⚠️ Code invalide !");
+                }
+            };
+
+            const watchSession = (id) => {
+                onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', id), (s) => {
+                    session.value = s.data();
+                    hasAnswered.value = false;
+                    selectedIdx.value = null;
+                    nextTick(() => lucide.createIcons());
+                });
+                onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'sessions', id, 'players'), (s) => {
+                    players.value = s.docs.map(d => ({id: d.id, ...d.data()}));
+                });
+            };
+
+            const generateQR = (id) => {
+                nextTick(() => {
+                    const qrEl = document.getElementById("qrcode");
+                    if (qrEl) {
+                        qrEl.innerHTML = "";
+                        const url = window.location.href.split('?')[0] + "?join=" + id;
+                        new QRCode(qrEl, { text: url, width: 128, height: 128, colorDark: "#4f46e5" });
+                    }
+                });
+            };
+
+            const submitAnswer = async (idx) => {
+                selectedIdx.value = idx;
+                hasAnswered.value = true;
+                const isCorrect = idx === questions[session.value.currentQuestionIndex].answer;
+                const pRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value, 'players', userId.value);
+                const pSnap = await getDoc(pRef);
+                if (pSnap.exists()) {
+                    await updateDoc(pRef, { 
+                        score: isCorrect ? (pSnap.data().score + 1) : pSnap.data().score,
+                        lastAnswer: session.value.currentQuestionIndex
+                    });
+                }
+            };
+
+            const nextStep = async () => {
+                const nextIdx = session.value.currentQuestionIndex + 1;
+                const sRef = doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value);
+                if (nextIdx >= questions.length) {
+                    await updateDoc(sRef, { status: 'results' });
+                } else if (nextIdx % 5 === 0 && session.value.status !== 'checkpoint') {
+                    await updateDoc(sRef, { status: 'checkpoint' });
+                } else {
+                    await updateDoc(sRef, { currentQuestionIndex: nextIdx, status: 'playing' });
+                }
+            };
+
+            return {
+                loading, role, name, sessionId, tempName, tempId, session, players, hasAnswered, selectedIdx, userId,
+                currentQuestion: computed(() => questions[session.value?.currentQuestionIndex || 0]),
+                playersAnswered: computed(() => players.value.filter(p => p.lastAnswer === session.value?.currentQuestionIndex).length),
+                sortedPlayers: computed(() => [...players.value].sort((a,b) => b.score - a.score)),
+                initAdmin, joinGame, submitAnswer, nextStep,
+                updateStatus: (s) => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value), { status: s }),
+                resumeQuiz: () => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sessions', sessionId.value), { 
+                    status: 'playing', 
+                    currentQuestionIndex: session.value.currentQuestionIndex + 1 
+                }),
+                resetAll: () => window.location.reload()
+            }
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
